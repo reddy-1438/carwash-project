@@ -5,20 +5,36 @@ const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 8080;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/carwash_db";
 
 app.use(cors());
 app.use(express.json());
 
 // -------------------------------------------------------------
-// MongoDB Connection & Super Admin Auto-Seed
+// Root & Health Check Routes
+// -------------------------------------------------------------
+app.get("/", (req, res) => {
+  res.json({
+    status: "online",
+    message: "Carwash Backend API is live and operational!",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", uptime: process.uptime() });
+});
+
+// -------------------------------------------------------------
+// MongoDB Connection & Data Auto-Seed
 // -------------------------------------------------------------
 mongoose
   .connect(MONGO_URI)
   .then(async () => {
     console.log("MongoDB connected successfully.");
     await seedSuperAdmin();
+    await seedDefaultPlans();
   })
   .catch((err) => console.error("MongoDB connection error:", err));
 
@@ -131,6 +147,37 @@ async function seedSuperAdmin() {
   }
 }
 
+// Auto-seed default wash plans if not existing
+async function seedDefaultPlans() {
+  try {
+    const planCount = await Plan.countDocuments();
+    if (planCount === 0) {
+      await Plan.insertMany([
+        {
+          name: "Basic Wash",
+          price: 499,
+          description: "Exterior foam wash, tire dressing, and crystal window cleaning.",
+        },
+        {
+          name: "Standard Wash",
+          price: 899,
+          description: "Basic exterior wash plus interior vacuuming, dashboard polish, and door jambs.",
+        },
+        {
+          name: "Premium Detailing",
+          price: 1499,
+          description: "Full interior deep steam clean, exterior polymer wax, tire shine, and engine wipe down.",
+        },
+      ]);
+      console.log("--------------------------------------------------");
+      console.log("🚗 Default wash plans seeded successfully!");
+      console.log("--------------------------------------------------");
+    }
+  } catch (err) {
+    console.error("Error seeding default plans:", err);
+  }
+}
+
 // -------------------------------------------------------------
 // Authentication Routes (/api/auth)
 // -------------------------------------------------------------
@@ -165,7 +212,7 @@ app.post("/api/auth/register", async (req, res) => {
 
     await newUser.save();
 
-    const verificationUrl = `http://localhost:5173/verify-email?token=${token}`;
+    const verificationUrl = `${req.protocol}://${req.get("host")}/api/auth/verify-email/${token}`;
 
     if (transporter) {
       const info = await transporter.sendMail({
@@ -210,16 +257,16 @@ app.get("/api/auth/verify-email/:token", async (req, res) => {
     const user = await User.findOne({ verificationToken: token });
 
     if (!user) {
-      return res.status(400).json({ message: "Invalid or expired verification link." });
+      return res.status(400).send("<h2>Invalid or expired verification link.</h2>");
     }
 
     user.isVerified = true;
     user.verificationToken = undefined;
     await user.save();
 
-    res.json({ message: "Email verified successfully! You can now log in." });
+    res.send("<h2>Email verified successfully! You can now close this tab and log in.</h2>");
   } catch (err) {
-    res.status(500).json({ message: "Verification failed", error: err.message });
+    res.status(500).send("<h2>Verification failed</h2>");
   }
 });
 
@@ -349,7 +396,7 @@ app.get("/api/admin/reports", async (req, res) => {
         id: sub._id,
         residentName: resident ? resident.name : "Unknown",
         email: sub.userEmail,
-        apartment: resident ? resident.apartment : (apartment !== "all" ? apartment : "N/A"),
+        apartment: resident ? resident.apartment : apartment !== "all" ? apartment : "N/A",
         flatNo: resident ? resident.flatNo : "N/A",
         vehicle: resident ? resident.vehicle : "N/A",
         planName: sub.planName,
@@ -507,7 +554,7 @@ app.get("/api/admin/apartment-data/:apartmentName", async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// Dynamic Plans CRUD Routes
+// Dynamic Plans CRUD Routes (/api/plans)
 // -------------------------------------------------------------
 app.get("/api/plans", async (req, res) => {
   try {
@@ -554,6 +601,6 @@ app.get("/api/auth/users", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Backend server running on http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Backend server running on http://0.0.0.0:${PORT}`);
 });
