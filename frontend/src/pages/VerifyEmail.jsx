@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
+import API from "../api";
 
 function VerifyEmail() {
   const [searchParams] = useSearchParams();
@@ -11,7 +12,7 @@ function VerifyEmail() {
   useEffect(() => {
     if (!token) {
       setStatus("error");
-      setMessage("No verification token found.");
+      setMessage("No verification token found in the link.");
       return;
     }
 
@@ -19,21 +20,18 @@ function VerifyEmail() {
     if (hasRequested.current) return;
     hasRequested.current = true;
 
-    fetch(`http://localhost:5000/api/auth/verify-email/${token}`)
-      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
-      .then(({ ok, data }) => {
-        if (ok) {
-          setStatus("success");
-          setMessage(data.message || "Email verified successfully!");
-        } else {
-          setStatus("error");
-          setMessage(data.message || "Verification link is invalid or expired.");
-        }
+    API.get(`/api/auth/verify-email/${token}`)
+      .then((res) => {
+        setStatus("success");
+        setMessage(res.data?.message || "Email verified successfully!");
       })
       .catch((err) => {
-        console.error(err);
+        console.error("Verification error:", err);
         setStatus("error");
-        setMessage("Could not connect to server.");
+        setMessage(
+          err.response?.data?.message ||
+            "Verification link is invalid or expired. Please register again or log in."
+        );
       });
   }, [token]);
 
@@ -81,33 +79,34 @@ function VerifyEmail() {
         <>
           <h2 style={{ color: "#ef4444" }}>❌ Verification Failed</h2>
           <p style={{ color: "#64748b", marginBottom: "24px" }}>{message}</p>
-          <Link
-            to="/login"
-            style={{
-              padding: "10px 20px",
-              background: "#2563eb",
-              color: "#fff",
-              textDecoration: "none",
-              borderRadius: "6px",
-              fontWeight: "bold",
-              marginRight: "10px",
-            }}
-          >
-            Try Logging In
-          </Link>
-          <Link
-            to="/register"
-            style={{
-              padding: "10px 20px",
-              background: "#64748b",
-              color: "#fff",
-              textDecoration: "none",
-              borderRadius: "6px",
-              fontWeight: "bold",
-            }}
-          >
-            Back to Register
-          </Link>
+          <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
+            <Link
+              to="/login"
+              style={{
+                padding: "10px 20px",
+                background: "#2563eb",
+                color: "#fff",
+                textDecoration: "none",
+                borderRadius: "6px",
+                fontWeight: "bold",
+              }}
+            >
+              Try Logging In
+            </Link>
+            <Link
+              to="/register"
+              style={{
+                padding: "10px 20px",
+                background: "#64748b",
+                color: "#fff",
+                textDecoration: "none",
+                borderRadius: "6px",
+                fontWeight: "bold",
+              }}
+            >
+              Back to Register
+            </Link>
+          </div>
         </>
       )}
     </div>

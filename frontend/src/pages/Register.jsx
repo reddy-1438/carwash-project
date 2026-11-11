@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { getApartments, register } from "../api";
 
 function Register() {
   const navigate = useNavigate();
@@ -21,10 +22,9 @@ function Register() {
 
   // Fetch societies added by Admin
   useEffect(() => {
-    fetch("http://localhost:5000/api/apartments")
-      .then((res) => res.json())
-      .then((data) => {
-        const list = Array.isArray(data) ? data : [];
+    getApartments()
+      .then((res) => {
+        const list = Array.isArray(res.data) ? res.data : [];
         setApartments(list);
         if (list.length > 0) {
           setFormData((prev) => ({ ...prev, apartment: list[0].name }));
@@ -59,22 +59,15 @@ function Register() {
     setLoading(true);
 
     try {
-      const res = await fetch("http://localhost:5000/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        setSuccessMsg(data.message || "Registration successful! Verification link sent to your email.");
-      } else {
-        setErrorMsg(data.message || "Registration failed.");
-      }
+      const res = await register(formData);
+      setSuccessMsg(res.data.message || "Registration successful! Verification link sent to your email.");
     } catch (err) {
       console.error(err);
-      setErrorMsg("Failed to connect to the server.");
+      if (err.response && err.response.data && err.response.data.message) {
+        setErrorMsg(err.response.data.message);
+      } else {
+        setErrorMsg("Failed to connect to the server.");
+      }
     } finally {
       setLoading(false);
     }

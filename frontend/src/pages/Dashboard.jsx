@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import API, { getUserSubscriptions } from "../api";
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -13,15 +14,33 @@ function Dashboard() {
       return;
     }
 
-    fetch(`http://localhost:5000/api/auth/user/${userEmail}`)
-      .then((res) => res.json())
-      .then((data) => setProfile(data))
-      .catch((err) => console.error(err));
+    // Attempt to load full user details, falling back to localStorage cache if needed
+    API.get(`/api/auth/users`)
+      .then((res) => {
+        const users = Array.isArray(res.data) ? res.data : [];
+        const current = users.find((u) => u.email?.toLowerCase() === userEmail.toLowerCase());
+        if (current) {
+          setProfile(current);
+        } else {
+          // Local fallback from login state
+          setProfile({
+            name: localStorage.getItem("userName") || "Resident",
+            email: userEmail,
+            apartment: localStorage.getItem("assignedApartment") || "Registered Society",
+            flatNo: "N/A",
+            vehicle: "Registered Vehicle",
+            mobile: "N/A",
+          });
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load user profile:", err);
+      });
 
-    fetch(`http://localhost:5000/api/subscription/user/${userEmail}`)
-      .then((res) => res.json())
-      .then((data) => setSubscriptions(data))
-      .catch((err) => console.error(err));
+    // Fetch user subscriptions via Railway production API
+    getUserSubscriptions(userEmail)
+      .then((res) => setSubscriptions(Array.isArray(res.data) ? res.data : []))
+      .catch((err) => console.error("Failed to load subscriptions:", err));
   }, [userEmail, navigate]);
 
   return (
@@ -59,7 +78,7 @@ function Dashboard() {
             <p style={{ margin: 0 }}><strong>Name:</strong> {profile.name}</p>
             <p style={{ margin: 0 }}><strong>Email:</strong> {profile.email}</p>
             <p style={{ margin: 0 }}><strong>Mobile:</strong> {profile.mobile}</p>
-            <p style={{ margin: 0 }}><strong>Apartment:</strong> {profile.apartment} (Flat {profile.flatNo})</p>
+            <p style={{ margin: 0 }}><strong>Apartment:</strong> {profile.apartment} {profile.flatNo ? `(Flat ${profile.flatNo})` : ""}</p>
             <p style={{ margin: 0 }}><strong>Vehicle:</strong> {profile.vehicle}</p>
           </div>
         </div>

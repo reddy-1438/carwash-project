@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import API from "../api";
 
 function ApartmentAdmin() {
   const navigate = useNavigate();
@@ -28,9 +29,9 @@ function ApartmentAdmin() {
   useEffect(() => {
     if (!assignedApartment) return;
 
-    fetch(`http://localhost:5000/api/admin/apartment-data/${encodeURIComponent(assignedApartment)}`)
-      .then((res) => res.json())
-      .then((resData) => {
+    API.get(`/api/admin/apartment-data/${encodeURIComponent(assignedApartment)}`)
+      .then((res) => {
+        const resData = res.data;
         setData({
           totalUsers: resData.totalUsers || 0,
           totalSubscriptions: resData.totalSubscriptions || 0,
@@ -48,9 +49,8 @@ function ApartmentAdmin() {
 
   // Fetch report data
   const fetchReport = () => {
-    fetch(`http://localhost:5000/api/admin/reports?apartment=${encodeURIComponent(assignedApartment)}`)
-      .then((res) => res.json())
-      .then((resData) => setReportData(resData))
+    API.get(`/api/admin/reports?apartment=${encodeURIComponent(assignedApartment)}`)
+      .then((res) => setReportData(res.data))
       .catch((err) => console.error(err));
   };
 
@@ -266,7 +266,7 @@ function ApartmentAdmin() {
 
               {/* Plan breakdown chips */}
               <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "20px" }}>
-                {Object.entries(reportData.planBreakdown).map(([planName, count]) => (
+                {Object.entries(reportData.planBreakdown || {}).map(([planName, count]) => (
                   <div key={planName} style={{ background: "#f1f5f9", padding: "8px 14px", borderRadius: "8px", fontSize: "13px" }}>
                     <b>{planName}:</b> {count} subscriber{count > 1 ? "s" : ""}
                   </div>

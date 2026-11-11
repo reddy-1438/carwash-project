@@ -7,6 +7,7 @@ const nodemailer = require("nodemailer");
 const app = express();
 const PORT = process.env.PORT || 8080;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/carwash_db";
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
 app.use(cors());
 app.use(express.json());
@@ -27,7 +28,7 @@ app.get("/api/health", (req, res) => {
 });
 
 // -------------------------------------------------------------
-// MongoDB Connection & Data Auto-Seed
+// MongoDB Connection & Auto-Seeding
 // -------------------------------------------------------------
 mongoose
   .connect(MONGO_URI)
@@ -39,28 +40,42 @@ mongoose
   .catch((err) => console.error("MongoDB connection error:", err));
 
 // -------------------------------------------------------------
-// Ethereal Email Transporter Setup
+// Mailer Setup (Real Production SMTP with Ethereal Fallback)
 // -------------------------------------------------------------
 let transporter;
 
 async function setupMailer() {
-  try {
-    const testAccount = await nodemailer.createTestAccount();
+  if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+    // Production SMTP (e.g. Gmail App Password, Brevo, SendGrid)
     transporter = nodemailer.createTransport({
-      host: testAccount.smtp.host,
-      port: testAccount.smtp.port,
-      secure: testAccount.smtp.secure,
+      service: process.env.SMTP_SERVICE || undefined,
+      host: process.env.SMTP_HOST || "smtp.gmail.com",
+      port: Number(process.env.SMTP_PORT) || 465,
+      secure: Number(process.env.SMTP_PORT) === 465,
       auth: {
-        user: testAccount.user,
-        pass: testAccount.pass,
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
       },
     });
-    console.log("--------------------------------------------------");
-    console.log("📬 Ethereal Mailer ready for testing!");
-    console.log(`Test Mail User: ${testAccount.user}`);
-    console.log("--------------------------------------------------");
-  } catch (err) {
-    console.error("Failed to initialize test mailer:", err);
+    console.log(`🚀 Production Mailer initialized using user: ${process.env.SMTP_USER}`);
+  } else {
+    // Fallback: Test Mailer via Ethereal
+    try {
+      const testAccount = await nodemailer.createTestAccount();
+      transporter = nodemailer.createTransport({
+        host: testAccount.smtp.host,
+        port: testAccount.smtp.port,
+        secure: testAccount.smtp.secure,
+        auth: {
+          user: testAccount.user,
+          pass: testAccount.pass,
+        },
+      });
+      console.log("📬 Running with Ethereal Test Mailer (No real emails sent).");
+      console.log(`Test Mail User: ${testAccount.user}`);
+    } catch (err) {
+      console.error("Failed to initialize test mailer:", err);
+    }
   }
 }
 setupMailer();
@@ -123,7 +138,7 @@ const Subscription = mongoose.model("Subscription", SubscriptionSchema);
 const Plan = mongoose.model("Plan", PlanSchema);
 const Apartment = mongoose.model("Apartment", ApartmentSchema);
 
-// Auto-seed initial Super Admin if not existing
+// Auto-seed initial Super Admin
 async function seedSuperAdmin() {
   try {
     const adminExists = await User.findOne({ role: "super_admin" });
@@ -136,18 +151,14 @@ async function seedSuperAdmin() {
         isVerified: true,
       });
       await superAdmin.save();
-      console.log("--------------------------------------------------");
-      console.log("👑 Default Super Admin Created:");
-      console.log("   Email: admin@carwash.com");
-      console.log("   Password: admin123");
-      console.log("--------------------------------------------------");
+      console.log("👑 Default Super Admin Created: admin@carwash.com / admin123");
     }
   } catch (err) {
     console.error("Error seeding super admin:", err);
   }
 }
 
-// Auto-seed default wash plans if not existing
+// Auto-seed default wash plans
 async function seedDefaultPlans() {
   try {
     const planCount = await Plan.countDocuments();
@@ -169,9 +180,7 @@ async function seedDefaultPlans() {
           description: "Full interior deep steam clean, exterior polymer wax, tire shine, and engine wipe down.",
         },
       ]);
-      console.log("--------------------------------------------------");
       console.log("🚗 Default wash plans seeded successfully!");
-      console.log("--------------------------------------------------");
     }
   } catch (err) {
     console.error("Error seeding default plans:", err);
@@ -212,18 +221,20 @@ app.post("/api/auth/register", async (req, res) => {
 
     await newUser.save();
 
-    const verificationUrl = `${req.protocol}://${req.get("host")}/api/auth/verify-email/${token}`;
+    // Link sends resident directly to the frontend VerifyEmail page
+    const verificationUrl = `${FRONTEND_URL}/verify-email?token=${token}`;
 
     if (transporter) {
+      const mailSender = process.env.SMTP_FROM || process.env.SMTP_USER || '"Apartment Car Wash" <no-reply@apartmentcarwash.com>';
       const info = await transporter.sendMail({
-        from: '"Apartment Car Wash" <no-reply@apartmentcarwash.com>',
+        from: mailSender,
         to: cleanEmail,
         subject: "Verify Your Car Wash Account",
         html: `
           <div style="font-family: Arial, sans-serif; padding: 24px; max-width: 520px; border: 1px solid #e2e8f0; border-radius: 8px;">
             <h2 style="color: #0f172a; margin-top: 0;">🏎️ Welcome to Apartment Car Wash!</h2>
             <p>Hi ${name},</p>
-            <p>Thank you for signing up. Please verify your email to activate your account:</p>
+            <p>Thank you for signing up. Please verify your email address to activate your account:</p>
             <div style="text-align: center; margin: 30px 0;">
               <a href="${verificationUrl}" style="background: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
                 Verify Email Address
@@ -235,38 +246,39 @@ app.post("/api/auth/register", async (req, res) => {
         `,
       });
 
-      console.log("\n=======================================================");
-      console.log(`📩 Verification Email sent to: ${cleanEmail}`);
-      console.log("🔗 Click this preview link to view the email inbox:");
-      console.log(nodemailer.getTestMessageUrl(info));
-      console.log("=======================================================\n");
+      console.log(`📩 Verification email dispatched to: ${cleanEmail}`);
+      if (!process.env.SMTP_USER) {
+        console.log("🔗 Ethereal Preview URL:", nodemailer.getTestMessageUrl(info));
+      }
     }
 
     res.status(201).json({
-      message: "Registration successful! A verification link has been sent to your email.",
+      message: "Registration successful! A verification link has been sent to your email inbox.",
     });
   } catch (err) {
-    console.error(err);
+    console.error("Registration error:", err);
     res.status(500).json({ message: "Registration failed", error: err.message });
   }
 });
 
+// JSON API endpoint used by React's VerifyEmail.jsx
 app.get("/api/auth/verify-email/:token", async (req, res) => {
   try {
     const { token } = req.params;
     const user = await User.findOne({ verificationToken: token });
 
     if (!user) {
-      return res.status(400).send("<h2>Invalid or expired verification link.</h2>");
+      return res.status(400).json({ message: "Invalid or expired verification link." });
     }
 
     user.isVerified = true;
     user.verificationToken = undefined;
     await user.save();
 
-    res.send("<h2>Email verified successfully! You can now close this tab and log in.</h2>");
+    res.json({ message: "Email verified successfully! You can now log in." });
   } catch (err) {
-    res.status(500).send("<h2>Verification failed</h2>");
+    console.error("Verification error:", err);
+    res.status(500).json({ message: "Verification failed on server." });
   }
 });
 
@@ -363,7 +375,7 @@ app.get("/api/subscription", async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// Summary Reports Endpoint (Role & Society Aware)
+// Summary Reports Endpoint
 // -------------------------------------------------------------
 app.get("/api/admin/reports", async (req, res) => {
   try {
@@ -423,7 +435,7 @@ app.get("/api/admin/reports", async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// Super Admin Routes: Manage Society Admins
+// Society Admins Management
 // -------------------------------------------------------------
 app.post("/api/admin/create-society-admin", async (req, res) => {
   try {
@@ -521,7 +533,7 @@ app.delete("/api/apartments/:id", async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// Society Manager Filtered Data Route (/api/admin/apartment-data)
+// Society Manager Filtered Data Route
 // -------------------------------------------------------------
 app.get("/api/admin/apartment-data/:apartmentName", async (req, res) => {
   try {
@@ -554,7 +566,7 @@ app.get("/api/admin/apartment-data/:apartmentName", async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// Dynamic Plans CRUD Routes (/api/plans)
+// Dynamic Plans CRUD Routes
 // -------------------------------------------------------------
 app.get("/api/plans", async (req, res) => {
   try {

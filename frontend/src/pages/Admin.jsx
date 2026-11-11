@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import API from "../api";
 
 function Admin() {
   const navigate = useNavigate();
@@ -34,17 +35,15 @@ function Admin() {
   const [reportData, setReportData] = useState(null);
 
   const fetchPlans = () => {
-    fetch("http://localhost:5000/api/plans")
-      .then((res) => res.json())
-      .then((data) => setPlans(Array.isArray(data) ? data : []))
+    API.get("/api/plans")
+      .then((res) => setPlans(Array.isArray(res.data) ? res.data : []))
       .catch((err) => console.error(err));
   };
 
   const fetchApartments = () => {
-    fetch("http://localhost:5000/api/apartments")
-      .then((res) => res.json())
-      .then((data) => {
-        const list = Array.isArray(data) ? data : [];
+    API.get("/api/apartments")
+      .then((res) => {
+        const list = Array.isArray(res.data) ? res.data : [];
         setApartments(list);
         if (list.length > 0 && !adminForm.assignedApartment) {
           setAdminForm((prev) => ({ ...prev, assignedApartment: list[0].name }));
@@ -54,28 +53,24 @@ function Admin() {
   };
 
   const fetchSocietyAdmins = () => {
-    fetch("http://localhost:5000/api/admin/society-admins")
-      .then((res) => res.json())
-      .then((data) => setSocietyAdmins(Array.isArray(data) ? data : []))
+    API.get("/api/admin/society-admins")
+      .then((res) => setSocietyAdmins(Array.isArray(res.data) ? res.data : []))
       .catch((err) => console.error(err));
   };
 
   const fetchReport = (apartmentScope) => {
-    fetch(`http://localhost:5000/api/admin/reports?apartment=${encodeURIComponent(apartmentScope)}`)
-      .then((res) => res.json())
-      .then((data) => setReportData(data))
+    API.get(`/api/admin/reports?apartment=${encodeURIComponent(apartmentScope)}`)
+      .then((res) => setReportData(res.data))
       .catch((err) => console.error(err));
   };
 
   useEffect(() => {
-    fetch("http://localhost:5000/api/auth/users")
-      .then((res) => res.json())
-      .then((data) => setUsers(Array.isArray(data) ? data : []))
+    API.get("/api/auth/users")
+      .then((res) => setUsers(Array.isArray(res.data) ? res.data : []))
       .catch((err) => console.error(err));
 
-    fetch("http://localhost:5000/api/subscription")
-      .then((res) => res.json())
-      .then((data) => setSubscriptions(Array.isArray(data) ? data : []))
+    API.get("/api/subscription")
+      .then((res) => setSubscriptions(Array.isArray(res.data) ? res.data : []))
       .catch((err) => console.error(err));
 
     fetchPlans();
@@ -92,29 +87,25 @@ function Admin() {
     if (!aptForm.name.trim()) return;
 
     try {
-      const res = await fetch("http://localhost:5000/api/apartments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(aptForm),
-      });
-      const data = await res.json();
-      if (res.ok) {
+      const res = await API.post("/api/apartments", aptForm);
+      if (res.status === 200 || res.status === 201) {
         alert("Apartment added successfully!");
         setAptForm({ name: "", address: "" });
         fetchApartments();
       } else {
-        alert(data.message || "Failed to add apartment.");
+        alert(res.data?.message || "Failed to add apartment.");
       }
     } catch (err) {
       console.error(err);
+      alert(err.response?.data?.message || "Failed to add apartment.");
     }
   };
 
   const handleDeleteApartment = async (id) => {
     if (!window.confirm("Delete this apartment?")) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/apartments/${id}`, { method: "DELETE" });
-      if (res.ok) fetchApartments();
+      const res = await API.delete(`/api/apartments/${id}`);
+      if (res.status === 200) fetchApartments();
     } catch (err) {
       console.error(err);
     }
@@ -123,13 +114,8 @@ function Admin() {
   const handleCreateSocietyAdmin = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch("http://localhost:5000/api/admin/create-society-admin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(adminForm),
-      });
-      const data = await res.json();
-      if (res.ok) {
+      const res = await API.post("/api/admin/create-society-admin", adminForm);
+      if (res.status === 200 || res.status === 201) {
         alert(`Society Admin created for ${adminForm.assignedApartment}!`);
         setAdminForm({
           name: "",
@@ -139,18 +125,19 @@ function Admin() {
         });
         fetchSocietyAdmins();
       } else {
-        alert(data.message || "Failed to create society admin.");
+        alert(res.data?.message || "Failed to create society admin.");
       }
     } catch (err) {
       console.error(err);
+      alert(err.response?.data?.message || "Failed to create society admin.");
     }
   };
 
   const handleDeleteSocietyAdmin = async (id) => {
     if (!window.confirm("Remove this Society Admin login?")) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/admin/society-admins/${id}`, { method: "DELETE" });
-      if (res.ok) fetchSocietyAdmins();
+      const res = await API.delete(`/api/admin/society-admins/${id}`);
+      if (res.status === 200) fetchSocietyAdmins();
     } catch (err) {
       console.error(err);
     }
@@ -159,26 +146,23 @@ function Admin() {
   const handleAddPlan = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch("http://localhost:5000/api/plans", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(planForm),
-      });
-      if (res.ok) {
+      const res = await API.post("/api/plans", planForm);
+      if (res.status === 200 || res.status === 201) {
         alert("Plan created!");
         setPlanForm({ name: "", price: "", description: "" });
         fetchPlans();
       }
     } catch (err) {
       console.error(err);
+      alert(err.response?.data?.message || "Failed to create plan.");
     }
   };
 
   const handleDeletePlan = async (id) => {
     if (!window.confirm("Delete plan?")) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/plans/${id}`, { method: "DELETE" });
-      if (res.ok) fetchPlans();
+      const res = await API.delete(`/api/plans/${id}`);
+      if (res.status === 200) fetchPlans();
     } catch (err) {
       console.error(err);
     }
@@ -632,7 +616,7 @@ function Admin() {
               <tr style={{ background: "#f8fafc", textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>
                 <th style={{ padding: "12px" }}>Name</th>
                 <th style={{ padding: "12px" }}>Email</th>
-                <th style={{ padding: "12px" }}>Apartment</th>
+                <th style={{ padding: "12px", fontWeight: "600" }}>Apartment</th>
                 <th style={{ padding: "12px" }}>Flat No</th>
                 <th style={{ padding: "12px" }}>Vehicle</th>
               </tr>

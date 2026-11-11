@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { getPlans } from "../api";
 
 function Subscription() {
   const navigate = useNavigate();
@@ -7,10 +8,9 @@ function Subscription() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("http://localhost:5000/api/plans")
-      .then((res) => res.json())
-      .then((data) => {
-        setPlans(Array.isArray(data) ? data : []);
+    getPlans()
+      .then((res) => {
+        setPlans(Array.isArray(res.data) ? res.data : []);
         setLoading(false);
       })
       .catch((err) => {

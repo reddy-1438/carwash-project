@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { login } from "../api";
 
 function Login() {
   const navigate = useNavigate();
@@ -17,35 +18,30 @@ function Login() {
     setLoading(true);
 
     try {
-      const res = await fetch("http://localhost:5000/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
-      });
+      const res = await login(formData);
+      const data = res.data;
 
-      const data = await res.json();
+      // Save role and apartment assignment
+      localStorage.setItem("userEmail", data.user.email);
+      localStorage.setItem("userRole", data.user.role || "customer");
+      localStorage.setItem("userName", data.user.name || "");
+      localStorage.setItem("assignedApartment", data.user.assignedApartment || "");
 
-      if (res.ok) {
-        // Save role and apartment assignment
-        localStorage.setItem("userEmail", data.user.email);
-        localStorage.setItem("userRole", data.user.role || "customer");
-        localStorage.setItem("userName", data.user.name || "");
-        localStorage.setItem("assignedApartment", data.user.assignedApartment || "");
-
-        // Role-based automatic redirect
-        if (data.user.role === "super_admin") {
-          navigate("/admin");
-        } else if (data.user.role === "society_admin") {
-          navigate("/admin/apartment");
-        } else {
-          navigate("/dashboard");
-        }
+      // Role-based automatic redirect
+      if (data.user.role === "super_admin") {
+        navigate("/admin");
+      } else if (data.user.role === "society_admin") {
+        navigate("/admin/apartment");
       } else {
-        setErrorMsg(data.message || "Invalid Email or Password");
+        navigate("/dashboard");
       }
     } catch (err) {
       console.error(err);
-      setErrorMsg("Failed to connect to the server.");
+      if (err.response && err.response.data && err.response.data.message) {
+        setErrorMsg(err.response.data.message);
+      } else {
+        setErrorMsg("Failed to connect to the server.");
+      }
     } finally {
       setLoading(false);
     }

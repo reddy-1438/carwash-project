@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { createSubscription } from "../api";
 
 function Payment() {
   const location = useLocation();
@@ -46,30 +47,27 @@ function Payment() {
       // 1.5s simulated network/gateway verification delay
       await new Promise((resolve) => setTimeout(resolve, 1500));
 
-      const res = await fetch("http://localhost:5000/api/subscription", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userEmail,
-          planName: plan.name,
-          amount: plan.price,
-          paymentMethod: paymentMethod === "upi" ? `UPI (${upiApp.toUpperCase()})` : "Credit/Debit Card",
-          transactionId: generatedTxn,
-        }),
-      });
+      const payload = {
+        userEmail,
+        planName: plan.name,
+        amount: plan.price,
+        paymentMethod: paymentMethod === "upi" ? `UPI (${upiApp.toUpperCase()})` : "Credit/Debit Card",
+        transactionId: generatedTxn,
+      };
 
-      const data = await res.json();
+      const res = await createSubscription(payload);
 
-      if (res.ok) {
+      if (res.status === 200 || res.status === 201) {
         setTxnId(generatedTxn);
         setStatus("success");
       } else {
-        alert(data.message || "Subscription processing failed.");
+        alert(res.data?.message || "Subscription processing failed.");
         setStatus("idle");
       }
     } catch (err) {
       console.error(err);
-      alert("Payment processing error. Please ensure your backend is running.");
+      const msg = err.response?.data?.message || "Payment processing error. Please ensure your backend is reachable.";
+      alert(msg);
       setStatus("idle");
     }
   };
