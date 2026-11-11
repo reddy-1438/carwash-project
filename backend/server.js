@@ -40,26 +40,30 @@ mongoose
   .catch((err) => console.error("MongoDB connection error:", err));
 
 // -------------------------------------------------------------
-// Mailer Setup (Real Production SMTP with Ethereal Fallback)
+// Mailer Setup (Port 587 + STARTTLS for Railway compatibility)
 // -------------------------------------------------------------
 let transporter;
 
 async function setupMailer() {
   if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-    // Production SMTP (e.g. Gmail App Password, Brevo, SendGrid)
+    const port = Number(process.env.SMTP_PORT) || 587;
     transporter = nodemailer.createTransport({
-      service: process.env.SMTP_SERVICE || undefined,
       host: process.env.SMTP_HOST || "smtp.gmail.com",
-      port: Number(process.env.SMTP_PORT) || 465,
-      secure: Number(process.env.SMTP_PORT) === 465,
+      port: port,
+      secure: port === 465, // false for 587
       auth: {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
       },
+      tls: {
+        rejectUnauthorized: false,
+      },
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 20000,
     });
-    console.log(`🚀 Production Mailer initialized using user: ${process.env.SMTP_USER}`);
+    console.log(`🚀 Production Mailer initialized using user: ${process.env.SMTP_USER} on port ${port}`);
   } else {
-    // Fallback: Test Mailer via Ethereal
     try {
       const testAccount = await nodemailer.createTestAccount();
       transporter = nodemailer.createTransport({
@@ -72,7 +76,6 @@ async function setupMailer() {
         },
       });
       console.log("📬 Running with Ethereal Test Mailer (No real emails sent).");
-      console.log(`Test Mail User: ${testAccount.user}`);
     } catch (err) {
       console.error("Failed to initialize test mailer:", err);
     }
@@ -221,40 +224,39 @@ app.post("/api/auth/register", async (req, res) => {
 
     await newUser.save();
 
-    // Link sends resident directly to the frontend VerifyEmail page
     const verificationUrl = `${FRONTEND_URL}/verify-email?token=${token}`;
 
-    if (transporter) {
-      const mailSender = process.env.SMTP_FROM || process.env.SMTP_USER || '"Apartment Car Wash" <no-reply@apartmentcarwash.com>';
-      const info = await transporter.sendMail({
-        from: mailSender,
-        to: cleanEmail,
-        subject: "Verify Your Car Wash Account",
-        html: `
-          <div style="font-family: Arial, sans-serif; padding: 24px; max-width: 520px; border: 1px solid #e2e8f0; border-radius: 8px;">
-            <h2 style="color: #0f172a; margin-top: 0;">🏎️ Welcome to Apartment Car Wash!</h2>
-            <p>Hi ${name},</p>
-            <p>Thank you for signing up. Please verify your email address to activate your account:</p>
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${verificationUrl}" style="background: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
-                Verify Email Address
-              </a>
-            </div>
-            <p style="font-size: 13px; color: #64748b;">Or paste this link into your browser:</p>
-            <p style="font-size: 12px; color: #2563eb; word-break: break-all;">${verificationUrl}</p>
-          </div>
-        `,
-      });
-
-      console.log(`📩 Verification email dispatched to: ${cleanEmail}`);
-      if (!process.env.SMTP_USER) {
-        console.log("🔗 Ethereal Preview URL:", nodemailer.getTestMessageUrl(info));
-      }
-    }
-
+    // Return immediate response so the browser screen switches instantly
     res.status(201).json({
-      message: "Registration successful! A verification link has been sent to your email inbox.",
+      message: "Registration successful! Verification link sent to your email.",
     });
+
+    // Send email asynchronously in the background
+    if (transporter) {
+      const mailSender = process.env.SMTP_USER || '"Apartment Car Wash" <no-reply@apartmentcarwash.com>';
+      transporter
+        .sendMail({
+          from: mailSender,
+          to: cleanEmail,
+          subject: "Verify Your Car Wash Account",
+          html: `
+            <div style="font-family: Arial, sans-serif; padding: 24px; max-width: 520px; border: 1px solid #e2e8f0; border-radius: 8px;">
+              <h2 style="color: #0f172a; margin-top: 0;">🏎️ Welcome to Apartment Car Wash!</h2>
+              <p>Hi ${name},</p>
+              <p>Thank you for signing up. Please verify your email address to activate your account:</p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${verificationUrl}" style="background: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+                  Verify Email Address
+                </a>
+              </div>
+              <p style="font-size: 13px; color: #64748b;">Or paste this link into your browser:</p>
+              <p style="font-size: 12px; color: #2563eb; word-break: break-all;">${verificationUrl}</p>
+            </div>
+          `,
+        })
+        .then(() => console.log(`📩 Verification email dispatched to: ${cleanEmail}`))
+        .catch((mailErr) => console.error("❌ Email delivery failed:", mailErr.message));
+    }
   } catch (err) {
     console.error("Registration error:", err);
     res.status(500).json({ message: "Registration failed", error: err.message });
