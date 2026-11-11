@@ -3,11 +3,15 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/carwash_db";
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+
+// Resend HTTP Client (Bypasses Railway raw SMTP port blocking)
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 app.use(cors());
 app.use(express.json());
@@ -40,17 +44,19 @@ mongoose
   .catch((err) => console.error("MongoDB connection error:", err));
 
 // -------------------------------------------------------------
-// Mailer Setup (Port 587 + STARTTLS for Railway compatibility)
+// Mailer Setup (Fallback for local dev or SMTP if provided)
 // -------------------------------------------------------------
-let transporter;
+let transporter = null;
 
 async function setupMailer() {
-  if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+  if (resend) {
+    console.log("🚀 Mailer configured with Resend HTTPS API (No SMTP port blocks).");
+  } else if (process.env.SMTP_USER && process.env.SMTP_PASS) {
     const port = Number(process.env.SMTP_PORT) || 587;
     transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || "smtp.gmail.com",
       port: port,
-      secure: port === 465, // false for 587
+      secure: port === 465,
       auth: {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
@@ -58,30 +64,67 @@ async function setupMailer() {
       tls: {
         rejectUnauthorized: false,
       },
-      connectionTimeout: 15000,
-      greetingTimeout: 15000,
-      socketTimeout: 20000,
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
     });
-    console.log(`🚀 Production Mailer initialized using user: ${process.env.SMTP_USER} on port ${port}`);
+    console.log(`🚀 Mailer initialized using SMTP: ${process.env.SMTP_USER} on port ${port}`);
   } else {
-    try {
-      const testAccount = await nodemailer.createTestAccount();
-      transporter = nodemailer.createTransport({
-        host: testAccount.smtp.host,
-        port: testAccount.smtp.port,
-        secure: testAccount.smtp.secure,
-        auth: {
-          user: testAccount.user,
-          pass: testAccount.pass,
-        },
-      });
-      console.log("📬 Running with Ethereal Test Mailer (No real emails sent).");
-    } catch (err) {
-      console.error("Failed to initialize test mailer:", err);
-    }
+    console.log("📬 Running without mail credentials. Verification links will be logged to console.");
   }
 }
 setupMailer();
+
+// Helper to send email via Resend (HTTPS) or Nodemailer (SMTP)
+async function sendVerificationEmail({ to, name, verificationUrl }) {
+  const htmlContent = `
+    <div style="font-family: Arial, sans-serif; padding: 24px; max-width: 520px; border: 1px solid #e2e8f0; border-radius: 8px;">
+      <h2 style="color: #0f172a; margin-top: 0;">🏎️ Welcome to Apartment Car Wash!</h2>
+      <p>Hi ${name},</p>
+      <p>Thank you for signing up. Please verify your email address to activate your account:</p>
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${verificationUrl}" style="background: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+          Verify Email Address
+        </a>
+      </div>
+      <p style="font-size: 13px; color: #64748b;">Or paste this link into your browser:</p>
+      <p style="font-size: 12px; color: #2563eb; word-break: break-all;">${verificationUrl}</p>
+    </div>
+  `;
+
+  if (resend) {
+    try {
+      await resend.emails.send({
+        from: "Apartment Car Wash <onboarding@resend.dev>",
+        to: to,
+        subject: "Verify Your Car Wash Account",
+        html: htmlContent,
+      });
+      console.log(`📩 Verification email sent via Resend API to: ${to}`);
+      return;
+    } catch (err) {
+      console.error("❌ Resend API delivery failed:", err.message);
+    }
+  }
+
+  if (transporter) {
+    try {
+      const mailSender = process.env.SMTP_USER || '"Apartment Car Wash" <no-reply@apartmentcarwash.com>';
+      await transporter.sendMail({
+        from: mailSender,
+        to: to,
+        subject: "Verify Your Car Wash Account",
+        html: htmlContent,
+      });
+      console.log(`📩 Verification email sent via SMTP to: ${to}`);
+      return;
+    } catch (err) {
+      console.error("❌ SMTP delivery failed:", err.message);
+    }
+  }
+
+  console.log(`🔗 Verification fallback link for ${to}: ${verificationUrl}`);
+}
 
 // -------------------------------------------------------------
 // Database Models & Schemas
@@ -226,37 +269,17 @@ app.post("/api/auth/register", async (req, res) => {
 
     const verificationUrl = `${FRONTEND_URL}/verify-email?token=${token}`;
 
-    // Return immediate response so the browser screen switches instantly
+    // Return immediate response so the browser does not hang
     res.status(201).json({
       message: "Registration successful! Verification link sent to your email.",
     });
 
     // Send email asynchronously in the background
-    if (transporter) {
-      const mailSender = process.env.SMTP_USER || '"Apartment Car Wash" <no-reply@apartmentcarwash.com>';
-      transporter
-        .sendMail({
-          from: mailSender,
-          to: cleanEmail,
-          subject: "Verify Your Car Wash Account",
-          html: `
-            <div style="font-family: Arial, sans-serif; padding: 24px; max-width: 520px; border: 1px solid #e2e8f0; border-radius: 8px;">
-              <h2 style="color: #0f172a; margin-top: 0;">🏎️ Welcome to Apartment Car Wash!</h2>
-              <p>Hi ${name},</p>
-              <p>Thank you for signing up. Please verify your email address to activate your account:</p>
-              <div style="text-align: center; margin: 30px 0;">
-                <a href="${verificationUrl}" style="background: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
-                  Verify Email Address
-                </a>
-              </div>
-              <p style="font-size: 13px; color: #64748b;">Or paste this link into your browser:</p>
-              <p style="font-size: 12px; color: #2563eb; word-break: break-all;">${verificationUrl}</p>
-            </div>
-          `,
-        })
-        .then(() => console.log(`📩 Verification email dispatched to: ${cleanEmail}`))
-        .catch((mailErr) => console.error("❌ Email delivery failed:", mailErr.message));
-    }
+    sendVerificationEmail({
+      to: cleanEmail,
+      name,
+      verificationUrl,
+    });
   } catch (err) {
     console.error("Registration error:", err);
     res.status(500).json({ message: "Registration failed", error: err.message });
@@ -320,6 +343,21 @@ app.post("/api/auth/login", async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ message: "Login failed", error: err.message });
+  }
+});
+
+// Delete user by email (utility endpoint to remove test emails)
+app.delete("/api/auth/users/:email", async (req, res) => {
+  try {
+    const email = req.params.email.trim().toLowerCase();
+    const deletedUser = await User.findOneAndDelete({ email });
+    if (!deletedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    await Subscription.deleteMany({ userEmail: email });
+    res.json({ message: `User ${email} deleted successfully.` });
+  } catch (err) {
+    res.status(500).json({ message: "Error deleting user", error: err.message });
   }
 });
 
