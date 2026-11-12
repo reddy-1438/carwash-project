@@ -25,8 +25,12 @@ function ApartmentAdmin() {
   const [activeTab, setActiveTab] = useState("residents");
   const [loading, setLoading] = useState(true);
 
-  // Fetch basic apartment data
-  useEffect(() => {
+  // Inline Resident Contact Editing states
+  const [editingUserId, setEditingUserId] = useState(null);
+  const [editContactForm, setEditContactForm] = useState({ mobile: "", email: "" });
+  const [savingContact, setSavingContact] = useState(false);
+
+  const fetchApartmentData = () => {
     if (!assignedApartment) return;
 
     API.get(`/api/admin/apartment-data/${encodeURIComponent(assignedApartment)}`)
@@ -45,20 +49,62 @@ function ApartmentAdmin() {
         console.error(err);
         setLoading(false);
       });
-  }, [assignedApartment]);
+  };
 
-  // Fetch report data
   const fetchReport = () => {
+    if (!assignedApartment) return;
     API.get(`/api/admin/reports?apartment=${encodeURIComponent(assignedApartment)}`)
       .then((res) => setReportData(res.data))
       .catch((err) => console.error(err));
   };
 
   useEffect(() => {
-    if (assignedApartment) {
-      fetchReport();
-    }
+    fetchApartmentData();
+    fetchReport();
   }, [assignedApartment]);
+
+  // Inline Edit Handlers
+  const startEditingContact = (user) => {
+    setEditingUserId(user._id);
+    setEditContactForm({
+      mobile: user.mobile || "",
+      email: user.email || "",
+    });
+  };
+
+  const handleUpdateContact = async (userId) => {
+    const cleanMobile = editContactForm.mobile.trim();
+    const cleanEmail = editContactForm.email.trim().toLowerCase();
+
+    if (!/^\d{10}$/.test(cleanMobile)) {
+      alert("Mobile number must be exactly 10 digits.");
+      return;
+    }
+
+    if (!cleanEmail || !cleanEmail.includes("@")) {
+      alert("Please enter a valid email address.");
+      return;
+    }
+
+    setSavingContact(true);
+    try {
+      const res = await API.put(`/api/admin/users/${userId}/contact`, {
+        mobile: cleanMobile,
+        email: cleanEmail,
+      });
+      if (res.status === 200) {
+        alert(res.data?.message || "Resident contact updated!");
+        setEditingUserId(null);
+        fetchApartmentData();
+        fetchReport();
+      }
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.message || "Failed to update resident contact.");
+    } finally {
+      setSavingContact(false);
+    }
+  };
 
   // Export CSV Helper
   const downloadCSV = () => {
@@ -162,7 +208,7 @@ function ApartmentAdmin() {
         <div style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>Loading records...</div>
       ) : (
         <>
-          {/* Tab 1: Residents */}
+          {/* Tab 1: Residents (With Inline Phone & Email Editing) */}
           {activeTab === "residents" && (
             <div style={{ marginTop: "20px" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", background: "#ffffff", borderRadius: "8px", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
@@ -173,12 +219,13 @@ function ApartmentAdmin() {
                     <th style={{ padding: "12px" }}>Vehicle Reg No</th>
                     <th style={{ padding: "12px" }}>Mobile</th>
                     <th style={{ padding: "12px" }}>Email</th>
+                    <th style={{ padding: "12px", textAlign: "right" }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.users.length === 0 ? (
                     <tr>
-                      <td colSpan="5" style={{ padding: "20px", textAlign: "center", color: "#64748b" }}>
+                      <td colSpan="6" style={{ padding: "20px", textAlign: "center", color: "#64748b" }}>
                         No registered residents found.
                       </td>
                     </tr>
@@ -188,8 +235,58 @@ function ApartmentAdmin() {
                         <td style={{ padding: "12px", fontWeight: "bold", color: "#2563eb" }}>{u.flatNo}</td>
                         <td style={{ padding: "12px", fontWeight: "600" }}>{u.name}</td>
                         <td style={{ padding: "12px" }}>{u.vehicle}</td>
-                        <td style={{ padding: "12px" }}>{u.mobile}</td>
-                        <td style={{ padding: "12px", color: "#64748b" }}>{u.email}</td>
+
+                        {editingUserId === u._id ? (
+                          <>
+                            <td style={{ padding: "8px 12px" }}>
+                              <input
+                                type="tel"
+                                value={editContactForm.mobile}
+                                onChange={(e) => setEditContactForm({ ...editContactForm, mobile: e.target.value })}
+                                placeholder="10-digit mobile"
+                                style={{ width: "125px", padding: "6px 8px", borderRadius: "4px", border: "1px solid #cbd5e1", fontSize: "13px" }}
+                              />
+                            </td>
+                            <td style={{ padding: "8px 12px" }}>
+                              <input
+                                type="email"
+                                value={editContactForm.email}
+                                onChange={(e) => setEditContactForm({ ...editContactForm, email: e.target.value })}
+                                placeholder="resident@gmail.com"
+                                style={{ width: "190px", padding: "6px 8px", borderRadius: "4px", border: "1px solid #cbd5e1", fontSize: "13px" }}
+                              />
+                            </td>
+                            <td style={{ padding: "8px 12px", textAlign: "right", whiteSpace: "nowrap" }}>
+                              <button
+                                onClick={() => handleUpdateContact(u._id)}
+                                disabled={savingContact}
+                                style={{ padding: "6px 12px", background: "#16a34a", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer", marginRight: "6px", fontWeight: "600", fontSize: "13px" }}
+                              >
+                                {savingContact ? "Saving..." : "Save"}
+                              </button>
+                              <button
+                                onClick={() => setEditingUserId(null)}
+                                disabled={savingContact}
+                                style={{ padding: "6px 10px", background: "#94a3b8", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "13px" }}
+                              >
+                                Cancel
+                              </button>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td style={{ padding: "12px" }}>{u.mobile}</td>
+                            <td style={{ padding: "12px", color: "#64748b" }}>{u.email}</td>
+                            <td style={{ padding: "12px", textAlign: "right" }}>
+                              <button
+                                onClick={() => startEditingContact(u)}
+                                style={{ padding: "6px 12px", background: "#0284c7", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "13px" }}
+                              >
+                                Edit Contact
+                              </button>
+                            </td>
+                          </>
+                        )}
                       </tr>
                     ))
                   )}

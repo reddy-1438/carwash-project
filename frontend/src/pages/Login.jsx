@@ -1,20 +1,48 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import axios from "axios";
 import { login } from "../api";
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8080";
 
 function Login() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [errorMsg, setErrorMsg] = useState("");
+  const [unverifiedEmail, setUnverifiedEmail] = useState("");
+  const [resendStatus, setResendStatus] = useState("");
+  const [resending, setResending] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const handleResendLink = async () => {
+    const targetEmail = unverifiedEmail || formData.email.trim();
+    if (!targetEmail) return;
+
+    setResending(true);
+    setResendStatus("");
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/auth/resend-verification`, {
+        email: targetEmail,
+      });
+      setResendStatus(res.data.message);
+      setErrorMsg("");
+      setUnverifiedEmail("");
+    } catch (err) {
+      setResendStatus(err.response?.data?.message || "Failed to resend verification email.");
+    } finally {
+      setResending(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg("");
+    setResendStatus("");
+    setUnverifiedEmail("");
     setLoading(true);
 
     try {
@@ -37,8 +65,13 @@ function Login() {
       }
     } catch (err) {
       console.error(err);
-      if (err.response && err.response.data && err.response.data.message) {
-        setErrorMsg(err.response.data.message);
+      const errData = err.response?.data;
+      if (errData?.message) {
+        setErrorMsg(errData.message);
+        // Check if backend flagged account as unverified (or message mentions verification)
+        if (errData.unverified || errData.message.toLowerCase().includes("not verified")) {
+          setUnverifiedEmail(errData.email || formData.email.trim());
+        }
       } else {
         setErrorMsg("Failed to connect to the server.");
       }
@@ -64,18 +97,53 @@ function Login() {
         Residents & Admins Portal
       </p>
 
-      {errorMsg && (
+      {resendStatus && (
         <div
           style={{
-            background: "#fef2f2",
-            color: "#b91c1c",
-            padding: "10px",
+            background: "#dcfce7",
+            color: "#166534",
+            padding: "10px 12px",
             borderRadius: "6px",
             fontSize: "14px",
             marginBottom: "16px",
           }}
         >
-          {errorMsg}
+          {resendStatus}
+        </div>
+      )}
+
+      {errorMsg && (
+        <div
+          style={{
+            background: "#fef2f2",
+            color: "#b91c1c",
+            padding: "12px",
+            borderRadius: "6px",
+            fontSize: "14px",
+            marginBottom: "16px",
+          }}
+        >
+          <div>{errorMsg}</div>
+          {unverifiedEmail && (
+            <button
+              type="button"
+              onClick={handleResendLink}
+              disabled={resending}
+              style={{
+                marginTop: "8px",
+                padding: "6px 12px",
+                background: "#dc2626",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "4px",
+                fontSize: "13px",
+                fontWeight: "600",
+                cursor: "pointer",
+              }}
+            >
+              {resending ? "Sending..." : "Resend Verification Email"}
+            </button>
+          )}
         </div>
       )}
 
@@ -102,9 +170,14 @@ function Login() {
         </div>
 
         <div>
-          <label style={{ display: "block", fontSize: "13px", fontWeight: "600", marginBottom: "6px" }}>
-            Password
-          </label>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+            <label style={{ fontSize: "13px", fontWeight: "600" }}>
+              Password
+            </label>
+            <Link to="/forgot-password" style={{ fontSize: "12px", color: "#2563eb", textDecoration: "none", fontWeight: "600" }}>
+              Forgot Password?
+            </Link>
+          </div>
           <input
             type="password"
             name="password"

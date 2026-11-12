@@ -7,6 +7,8 @@ import ApartmentAdmin from "./pages/ApartmentAdmin";
 import Payment from "./pages/Payment";
 import Dashboard from "./pages/Dashboard";
 import VerifyEmail from "./pages/VerifyEmail";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 
 function App() {
   const navigate = useNavigate();
@@ -168,6 +170,8 @@ function App() {
           <Route path="/" element={<Subscription />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/subscription" element={<Subscription />} />
           <Route path="/payment" element={<Payment />} />
           <Route path="/dashboard" element={<Dashboard />} />

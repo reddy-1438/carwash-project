@@ -30,9 +30,30 @@ function Admin() {
   });
   const [planForm, setPlanForm] = useState({ name: "", price: "", description: "" });
 
+  // Inline Plan Editing states
+  const [editingPlanId, setEditingPlanId] = useState(null);
+  const [editPlanForm, setEditPlanForm] = useState({ name: "", price: "", description: "" });
+
   // Reporting states
   const [selectedReportApartment, setSelectedReportApartment] = useState("all");
   const [reportData, setReportData] = useState(null);
+
+  const fetchUsers = () => {
+    API.get("/api/admin/users")
+      .then((res) => setUsers(Array.isArray(res.data) ? res.data : []))
+      .catch(() => {
+        // Fallback if backend still exposes /api/auth/users
+        API.get("/api/auth/users")
+          .then((res) => setUsers(Array.isArray(res.data) ? res.data : []))
+          .catch((err) => console.error(err));
+      });
+  };
+
+  const fetchSubscriptions = () => {
+    API.get("/api/subscription")
+      .then((res) => setSubscriptions(Array.isArray(res.data) ? res.data : []))
+      .catch((err) => console.error(err));
+  };
 
   const fetchPlans = () => {
     API.get("/api/plans")
@@ -65,14 +86,8 @@ function Admin() {
   };
 
   useEffect(() => {
-    API.get("/api/auth/users")
-      .then((res) => setUsers(Array.isArray(res.data) ? res.data : []))
-      .catch((err) => console.error(err));
-
-    API.get("/api/subscription")
-      .then((res) => setSubscriptions(Array.isArray(res.data) ? res.data : []))
-      .catch((err) => console.error(err));
-
+    fetchUsers();
+    fetchSubscriptions();
     fetchPlans();
     fetchApartments();
     fetchSocietyAdmins();
@@ -158,6 +173,34 @@ function Admin() {
     }
   };
 
+  const startEditingPlan = (plan) => {
+    setEditingPlanId(plan._id);
+    setEditPlanForm({
+      name: plan.name,
+      price: plan.price,
+      description: plan.description,
+    });
+  };
+
+  const handleUpdatePlan = async (id) => {
+    if (!editPlanForm.name.trim() || !editPlanForm.price || !editPlanForm.description.trim()) {
+      alert("Please fill out all plan fields.");
+      return;
+    }
+
+    try {
+      const res = await API.put(`/api/plans/${id}`, editPlanForm);
+      if (res.status === 200) {
+        alert("Plan updated successfully!");
+        setEditingPlanId(null);
+        fetchPlans();
+      }
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.message || "Failed to update plan.");
+    }
+  };
+
   const handleDeletePlan = async (id) => {
     if (!window.confirm("Delete plan?")) return;
     try {
@@ -165,6 +208,24 @@ function Admin() {
       if (res.status === 200) fetchPlans();
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleDeleteUser = async (user) => {
+    if (!window.confirm(`Are you sure you want to delete resident "${user.name}" (${user.email})? This will also delete their active subscriptions.`)) {
+      return;
+    }
+    try {
+      const res = await API.delete(`/api/admin/users/${user._id}`);
+      if (res.status === 200) {
+        alert(res.data?.message || "Resident deleted successfully.");
+        fetchUsers();
+        fetchSubscriptions();
+        fetchReport(selectedReportApartment);
+      }
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.message || "Failed to delete resident.");
     }
   };
 
@@ -545,7 +606,7 @@ function Admin() {
         </div>
       )}
 
-      {/* Tab: Plans */}
+      {/* Tab: Plans (With Inline Edit Support) */}
       {activeTab === "plans" && (
         <div style={{ marginTop: "20px" }}>
           <div style={{ background: "#fff", padding: "20px", borderRadius: "8px", border: "1px solid #e2e8f0", marginBottom: "24px" }}>
@@ -593,14 +654,68 @@ function Admin() {
             <tbody>
               {plans.map((p) => (
                 <tr key={p._id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                  <td style={{ padding: "12px", fontWeight: "bold" }}>{p.name}</td>
-                  <td style={{ padding: "12px", color: "#16a34a", fontWeight: "bold" }}>₹{p.price}</td>
-                  <td style={{ padding: "12px" }}>{p.description}</td>
-                  <td style={{ padding: "12px", textAlign: "right" }}>
-                    <button onClick={() => handleDeletePlan(p._id)} style={{ padding: "6px 12px", background: "#ef4444", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}>
-                      Delete
-                    </button>
-                  </td>
+                  {editingPlanId === p._id ? (
+                    <>
+                      <td style={{ padding: "10px" }}>
+                        <input
+                          type="text"
+                          value={editPlanForm.name}
+                          onChange={(e) => setEditPlanForm({ ...editPlanForm, name: e.target.value })}
+                          style={{ width: "100%", padding: "6px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
+                        />
+                      </td>
+                      <td style={{ padding: "10px", width: "110px" }}>
+                        <input
+                          type="number"
+                          value={editPlanForm.price}
+                          onChange={(e) => setEditPlanForm({ ...editPlanForm, price: e.target.value })}
+                          style={{ width: "100%", padding: "6px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
+                        />
+                      </td>
+                      <td style={{ padding: "10px" }}>
+                        <input
+                          type="text"
+                          value={editPlanForm.description}
+                          onChange={(e) => setEditPlanForm({ ...editPlanForm, description: e.target.value })}
+                          style={{ width: "100%", padding: "6px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
+                        />
+                      </td>
+                      <td style={{ padding: "10px", textAlign: "right", whiteSpace: "nowrap" }}>
+                        <button
+                          onClick={() => handleUpdatePlan(p._id)}
+                          style={{ padding: "6px 12px", background: "#16a34a", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer", marginRight: "6px", fontWeight: "600" }}
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => setEditingPlanId(null)}
+                          style={{ padding: "6px 10px", background: "#94a3b8", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                        >
+                          Cancel
+                        </button>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td style={{ padding: "12px", fontWeight: "bold" }}>{p.name}</td>
+                      <td style={{ padding: "12px", color: "#16a34a", fontWeight: "bold" }}>₹{p.price}</td>
+                      <td style={{ padding: "12px" }}>{p.description}</td>
+                      <td style={{ padding: "12px", textAlign: "right", whiteSpace: "nowrap" }}>
+                        <button
+                          onClick={() => startEditingPlan(p)}
+                          style={{ padding: "6px 12px", background: "#0284c7", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer", marginRight: "6px" }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeletePlan(p._id)}
+                          style={{ padding: "6px 12px", background: "#ef4444", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -608,7 +723,7 @@ function Admin() {
         </div>
       )}
 
-      {/* Tab: Residents */}
+      {/* Tab: Residents (With Delete Support) */}
       {activeTab === "users" && (
         <div style={{ marginTop: "20px" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", background: "#ffffff", borderRadius: "8px", overflow: "hidden" }}>
@@ -616,21 +731,40 @@ function Admin() {
               <tr style={{ background: "#f8fafc", textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>
                 <th style={{ padding: "12px" }}>Name</th>
                 <th style={{ padding: "12px" }}>Email</th>
-                <th style={{ padding: "12px", fontWeight: "600" }}>Apartment</th>
+                <th style={{ padding: "12px" }}>Mobile</th>
+                <th style={{ padding: "12px" }}>Apartment</th>
                 <th style={{ padding: "12px" }}>Flat No</th>
                 <th style={{ padding: "12px" }}>Vehicle</th>
+                <th style={{ padding: "12px", textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
-                <tr key={u._id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                  <td style={{ padding: "12px" }}>{u.name}</td>
-                  <td style={{ padding: "12px" }}>{u.email}</td>
-                  <td style={{ padding: "12px", fontWeight: "600" }}>{u.apartment}</td>
-                  <td style={{ padding: "12px" }}>{u.flatNo}</td>
-                  <td style={{ padding: "12px" }}>{u.vehicle}</td>
+              {users.length === 0 ? (
+                <tr>
+                  <td colSpan="7" style={{ padding: "20px", textAlign: "center", color: "#64748b" }}>
+                    No registered residents found.
+                  </td>
                 </tr>
-              ))}
+              ) : (
+                users.map((u) => (
+                  <tr key={u._id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                    <td style={{ padding: "12px", fontWeight: "600" }}>{u.name}</td>
+                    <td style={{ padding: "12px" }}>{u.email}</td>
+                    <td style={{ padding: "12px" }}>{u.mobile || "—"}</td>
+                    <td style={{ padding: "12px", fontWeight: "600" }}>{u.apartment}</td>
+                    <td style={{ padding: "12px" }}>{u.flatNo}</td>
+                    <td style={{ padding: "12px" }}>{u.vehicle}</td>
+                    <td style={{ padding: "12px", textAlign: "right" }}>
+                      <button
+                        onClick={() => handleDeleteUser(u)}
+                        style={{ padding: "6px 12px", background: "#ef4444", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

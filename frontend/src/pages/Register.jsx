@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
+import axios from "axios";
 import { getApartments, register } from "../api";
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8080";
+
 function Register() {
-  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     name: "",
     mobile: "",
@@ -18,6 +20,8 @@ function Register() {
   const [loadingApartments, setLoadingApartments] = useState(true);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [canResend, setCanResend] = useState(false);
+  const [resending, setResending] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
 
   // Fetch societies added by Admin
@@ -41,10 +45,30 @@ function Register() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const handleResendLink = async () => {
+    const targetEmail = formData.email.trim();
+    if (!targetEmail) return;
+
+    setResending(true);
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/auth/resend-verification`, {
+        email: targetEmail,
+      });
+      setErrorMsg("");
+      setCanResend(false);
+      setSuccessMsg(res.data.message || "A fresh verification link has been sent to your email!");
+    } catch (err) {
+      setErrorMsg(err.response?.data?.message || "Failed to resend verification email.");
+    } finally {
+      setResending(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg("");
     setSuccessMsg("");
+    setCanResend(false);
 
     if (!/^\d{10}$/.test(formData.mobile)) {
       setErrorMsg("Mobile number must be exactly 10 digits.");
@@ -63,8 +87,12 @@ function Register() {
       setSuccessMsg(res.data.message || "Registration successful! Verification link sent to your email.");
     } catch (err) {
       console.error(err);
-      if (err.response && err.response.data && err.response.data.message) {
-        setErrorMsg(err.response.data.message);
+      const errData = err.response?.data;
+      if (errData?.message) {
+        setErrorMsg(errData.message);
+        if (errData.canResend) {
+          setCanResend(true);
+        }
       } else {
         setErrorMsg("Failed to connect to the server.");
       }
@@ -78,8 +106,28 @@ function Register() {
       <h2 style={{ textAlign: "center", marginTop: 0, color: "#0f172a" }}>Resident Registration</h2>
 
       {errorMsg && (
-        <div style={{ background: "#fef2f2", color: "#b91c1c", padding: "10px", borderRadius: "6px", fontSize: "14px", marginBottom: "16px" }}>
-          {errorMsg}
+        <div style={{ background: "#fef2f2", color: "#b91c1c", padding: "12px", borderRadius: "6px", fontSize: "14px", marginBottom: "16px" }}>
+          <div>{errorMsg}</div>
+          {canResend && (
+            <button
+              type="button"
+              onClick={handleResendLink}
+              disabled={resending}
+              style={{
+                marginTop: "8px",
+                padding: "6px 12px",
+                background: "#dc2626",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "4px",
+                fontSize: "13px",
+                fontWeight: "600",
+                cursor: "pointer",
+              }}
+            >
+              {resending ? "Sending..." : "Resend Verification Email"}
+            </button>
+          )}
         </div>
       )}
 
