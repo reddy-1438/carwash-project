@@ -381,20 +381,32 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// Delete user by email (utility endpoint to remove test emails)
-app.delete("/api/auth/users/:email", async (req, res) => {
+// Delete user by MongoDB ID or Email (universal routes for Admin Dashboard)
+const deleteUserHandler = async (req, res) => {
   try {
-    const email = req.params.email.trim().toLowerCase();
-    const deletedUser = await User.findOneAndDelete({ email });
+    const param = (req.params.identifier || req.params.id || req.params.email || "").trim();
+    let deletedUser = null;
+
+    if (mongoose.Types.ObjectId.isValid(param)) {
+      deletedUser = await User.findByIdAndDelete(param);
+    }
+    if (!deletedUser) {
+      deletedUser = await User.findOneAndDelete({ email: param.toLowerCase() });
+    }
     if (!deletedUser) {
       return res.status(404).json({ message: "User not found" });
     }
-    await Subscription.deleteMany({ userEmail: email });
-    res.json({ message: `User ${email} deleted successfully.` });
+
+    await Subscription.deleteMany({ userEmail: deletedUser.email.toLowerCase() });
+    res.json({ message: `Resident ${deletedUser.email} deleted successfully.` });
   } catch (err) {
     res.status(500).json({ message: "Error deleting user", error: err.message });
   }
-});
+};
+
+app.delete("/api/auth/users/:identifier", deleteUserHandler);
+app.delete("/api/admin/users/:identifier", deleteUserHandler);
+app.delete("/api/users/:identifier", deleteUserHandler);
 
 // -------------------------------------------------------------
 // Subscriptions & Payment Processing
