@@ -30,7 +30,12 @@ app.get("/", (req, res) => {
 });
 
 app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", uptime: process.uptime() });
+  res.json({
+    status: "ok",
+    uptime: process.uptime(),
+    dbHost: mongoose.connection.host || "disconnected",
+    dbName: mongoose.connection.name || "unknown",
+  });
 });
 
 // -------------------------------------------------------------
@@ -39,7 +44,9 @@ app.get("/api/health", (req, res) => {
 mongoose
   .connect(MONGO_URI)
   .then(async () => {
-    console.log("MongoDB connected successfully.");
+    console.log(
+      `MongoDB connected -> Host: ${mongoose.connection.host} | DB: ${mongoose.connection.name}`
+    );
     await seedSuperAdmin();
     await seedDefaultPlans();
   })
@@ -689,16 +696,20 @@ app.delete("/api/plans/:id", async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// General Users
+// General Users (Supports both /api/auth/users and /api/admin/users)
 // -------------------------------------------------------------
-app.get("/api/auth/users", async (req, res) => {
+const getCustomersHandler = async (req, res) => {
   try {
     const users = await User.find({ role: "customer" }).select("-password").sort({ createdAt: -1 });
     res.json(users);
   } catch (err) {
     res.status(500).json({ message: "Error fetching users", error: err.message });
   }
-});
+};
+
+app.get("/api/auth/users", getCustomersHandler);
+app.get("/api/admin/users", getCustomersHandler);
+app.get("/api/users", getCustomersHandler);
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Backend server running on http://0.0.0.0:${PORT}`);
