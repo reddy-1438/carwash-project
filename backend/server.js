@@ -10,7 +10,9 @@ const PORT = process.env.PORT || 8080;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/carwash_db";
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
-// Resend HTTP Client (Bypasses Railway raw SMTP port blocking)
+// Email Providers (Brevo HTTPS API -> Resend HTTPS API -> SMTP Fallback)
+const BREVO_API_KEY = process.env.BREVO_API_KEY;
+const SENDER_EMAIL = process.env.EMAIL_USER || process.env.SMTP_USER;
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 app.use(cors());
@@ -44,12 +46,14 @@ mongoose
   .catch((err) => console.error("MongoDB connection error:", err));
 
 // -------------------------------------------------------------
-// Mailer Setup (Fallback for local dev or SMTP if provided)
+// Mailer Setup (Brevo HTTPS API primary, Resend & SMTP fallbacks)
 // -------------------------------------------------------------
 let transporter = null;
 
 async function setupMailer() {
-  if (resend) {
+  if (BREVO_API_KEY && SENDER_EMAIL) {
+    console.log(`🚀 Mailer configured with Brevo HTTPS API (Sender: ${SENDER_EMAIL}).`);
+  } else if (resend) {
     console.log("🚀 Mailer configured with Resend HTTPS API (No SMTP port blocks).");
   } else if (process.env.SMTP_USER && process.env.SMTP_PASS) {
     const port = Number(process.env.SMTP_PORT) || 587;
@@ -75,7 +79,7 @@ async function setupMailer() {
 }
 setupMailer();
 
-// Helper to send email via Resend (HTTPS) or Nodemailer (SMTP)
+// Helper to send email via Brevo (HTTPS), Resend (HTTPS), or Nodemailer (SMTP)
 async function sendVerificationEmail({ to, name, verificationUrl }) {
   const htmlContent = `
     <div style="font-family: Arial, sans-serif; padding: 24px; max-width: 520px; border: 1px solid #e2e8f0; border-radius: 8px;">
@@ -91,6 +95,37 @@ async function sendVerificationEmail({ to, name, verificationUrl }) {
       <p style="font-size: 12px; color: #2563eb; word-break: break-all;">${verificationUrl}</p>
     </div>
   `;
+
+  if (BREVO_API_KEY && SENDER_EMAIL) {
+    try {
+      const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "api-key": BREVO_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sender: {
+            name: "Apartment Car Wash",
+            email: SENDER_EMAIL,
+          },
+          to: [{ email: to, name }],
+          subject: "Verify Your Car Wash Account",
+          htmlContent,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || JSON.stringify(data));
+      }
+
+      console.log(`📩 Verification email sent via Brevo API to: ${to} (MessageId: ${data.messageId || "ok"})`);
+      return;
+    } catch (err) {
+      console.error("❌ Brevo API delivery failed:", err.message);
+    }
+  }
 
   if (resend) {
     try {
